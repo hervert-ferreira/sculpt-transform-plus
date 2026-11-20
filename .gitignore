@@ -1,0 +1,15 @@
+# Built extension (published on extensions.blender.org / GitHub Releases)
+*.zip
+
+# Videos are uploaded to the README through GitHub, not stored in the repo
+videos/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Private project notes (roadmap, drafts)
+notes/
+
+# Raw screenshots used to build the images
+prints/
