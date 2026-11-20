@@ -1,0 +1,32 @@
+schema_version = "1.0.0"
+
+id = "sculpt_transform_plus"
+version = "0.1.0"
+name = "Sculpt Transform Plus"
+tagline = "Transform gizmo that stays aligned with the sculpt pivot"
+maintainer = "Hervert Ferreira"
+website = "https://github.com/hervert-ferreira/sculpt-transform-plus"
+type = "add-on"
+
+blender_version_min = "5.3.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+tags = ["Sculpt", "3D View"]
+
+[build]
+# Only the add-on goes into the extension zip: the repository's
+# images, videos, docs, icon sources and git files stay out.
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "/.gitignore",
+  "/images/",
+  "/prints/",
+  "/videos/",
+  "/icons/src/",
+  "/notes/",
+  "/README.md",
+  "/LICENSE",
+  "*.zip",
+]
