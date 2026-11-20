@@ -11,7 +11,9 @@ In Sculpt Mode, Blender's pivot has its own position **and rotation**: it turns 
 
 Sculpt Transform Plus keeps the gizmo glued to the sculpt pivot, in position and rotation, through every move, rotate, trackball, undo and redo. It adds a few buttons above the gizmo to place, reset and unlock the pivot, and it remembers the pivot of each object. Everything is built on Blender's own tools: the add-on never replaces how sculpting works, it only keeps the gizmo honest.
 
-<!-- VIDEO: drag sculpt-transform-plus-demo.mp4 onto this line in the GitHub editor -->
+https://github.com/user-attachments/assets/1ec407b9-aa71-47f8-9c73-a4b266f800a2
+
+
 
 ## Features
 
@@ -36,7 +38,7 @@ The gizmo uses a **Sculpt Pivot** orientation that the add-on keeps in sync with
 
 <img src="images/pivot-on-surface.png" alt="Pivot on the surface with Shift + right click" width="100%">
 
-<!-- VIDEO: drag pivot-on-surface.mp4 onto this line in the GitHub editor -->
+https://github.com/user-attachments/assets/e45e0d0e-938d-46c4-a985-db43a195e874
 
 ### Unmasked Center
 
@@ -58,7 +60,7 @@ The gizmo uses a **Sculpt Pivot** orientation that the add-on keeps in sync with
 
 <img src="images/pivot-memory.png" alt="Each object remembers its pivot" width="100%">
 
-<!-- VIDEO: drag pivot-memory.mp4 onto this line in the GitHub editor -->
+https://github.com/user-attachments/assets/70f53c0e-3695-40d8-a695-b160e988a5e6
 
 ## Installation
 
