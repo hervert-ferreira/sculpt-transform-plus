@@ -86,11 +86,11 @@ Requires Blender **5.3** or newer.
 
 | Button | Name | What it does |
 |---|---|---|
-| <img src="icons/unmasked_center_64.png" width="24"> | **Unmasked Center** | Pivot to the center of the unmasked area. With nothing masked: the mesh center, in Global orientation. |
-| <img src="icons/home_64.png" width="24"> | **World Origin** | **Locked:** moves the mesh so the pivot lands on the world origin, and straightens it to Global axes. **Unlocked:** moves only the pivot to the world origin, in Global orientation. The object origin and the 3D Cursor are never changed. |
-| <img src="icons/reset_64.png" width="24"> | **Reset Orientation** | **Locked:** turns the mesh back to Global axes around the pivot. **Unlocked:** turns only the pivot and the gizmo back to Global orientation. The pivot position is kept either way. |
-| <img src="icons/lock_closed_64.png" width="24"> | **Unlock Gizmo** | The gizmo moves and rotates only the pivot, not the mesh. A "Pivot Only" label shows while unlocked. |
-| <img src="icons/lock_open_64.png" width="24"> | **Lock Gizmo** | The gizmo moves and rotates the mesh again. |
+| <img src="images/buttons/unmasked_center.png" width="28"> | **Unmasked Center** | Pivot to the center of the unmasked area. With nothing masked: the mesh center, in Global orientation. |
+| <img src="images/buttons/home.png" width="28"> | **World Origin** | **Locked:** moves the mesh so the pivot lands on the world origin, and straightens it to Global axes. **Unlocked:** moves only the pivot to the world origin, in Global orientation. The object origin and the 3D Cursor are never changed. |
+| <img src="images/buttons/reset.png" width="28"> | **Reset Orientation** | **Locked:** turns the mesh back to Global axes around the pivot. **Unlocked:** turns only the pivot and the gizmo back to Global orientation. The pivot position is kept either way. |
+| <img src="images/buttons/lock_closed.png" width="28"> | **Unlock Gizmo** | The gizmo moves and rotates only the pivot, not the mesh. A "Pivot Only" label shows while unlocked. |
+| <img src="images/buttons/lock_open.png" width="28"> | **Lock Gizmo** | The gizmo moves and rotates the mesh again. |
 
 ## Shortcuts
 
