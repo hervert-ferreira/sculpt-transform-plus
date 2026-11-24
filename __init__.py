@@ -117,22 +117,106 @@ class _PivotOnly:
         return False
 
 
-def _rotate_native_pivot(ctx, delta):
-    """Rotate only the native sculpt pivot by the world-space 3x3 rotation `delta`."""
+def _rotate_op(delta):
+    """Run Blender's rotate by the world-space 3x3 rotation `delta`, about the sculpt pivot."""
     axis, angle = delta.to_quaternion().to_axis_angle()
     if abs(angle) < 1e-6:
-        return True
+        return
+    orient = Vector(axis).to_track_quat('Z', 'Y').to_matrix()
+    # Measured in Blender 5.3: a constrained rotation of +value turns about +axis.
+    bpy.ops.transform.rotate(value=angle, orient_axis='Z', orient_type='GLOBAL',
+                             orient_matrix=orient, orient_matrix_type='GLOBAL',
+                             constraint_axis=(False, False, True), snap=False)
+
+
+def _rotate_native_pivot(ctx, delta):
+    """Rotate only the native sculpt pivot by the world-space 3x3 rotation `delta`."""
     ov = _override(ctx)
     if ov is None:
         return False
     with ov, _PivotOnly(ctx) as pivot_only:
         if not pivot_only:          # never rotate the mesh
             return False
-        orient = Vector(axis).to_track_quat('Z', 'Y').to_matrix()
-        # Measured in Blender 5.3: a constrained rotation of +value turns about +axis.
-        bpy.ops.transform.rotate(value=angle, orient_axis='Z', orient_type='GLOBAL',
-                                 orient_matrix=orient, orient_matrix_type='GLOBAL',
-                                 constraint_axis=(False, False, True), snap=False)
+        _rotate_op(delta)
+    return True
+
+
+# A button that moves the mesh runs native transforms; Blender pushes their Sculpt undo
+# step(s) when the button finishes (one or two steps). The pivot state before each transform
+# is collected here and given to those steps by the timer (_assign_button_steps).
+_BUTTON_RUN = None          # (stack pointer before the button, [(rotation, position) before each transform])
+
+
+def _begin_mesh_button(ctx):
+    global _BUTTON_RUN
+    stack = ctx.window_manager.undo_stack
+    _BUTTON_RUN = (stack.active.as_pointer() if stack.active else None, [])
+
+
+def _note_before():
+    if _BUTTON_RUN is not None:
+        _BUTTON_RUN[1].append((_TRACKED.copy(), _pivot_pos_copy()))
+
+
+def _assign_button_steps(ctx):
+    """Give the undo steps pushed by a mesh button the pivot state from before each transform.
+    Returns True when it handled the steps (the timer must not overwrite them)."""
+    global _BUTTON_RUN, _LAST_ACTIVE_PTR
+    if _BUTTON_RUN is None:
+        return False
+    start_ptr, befores = _BUTTON_RUN
+    _BUTTON_RUN = None
+    stack = ctx.window_manager.undo_stack
+    if not befores or stack.active is None:
+        return False
+    start = _step_index(stack, start_ptr) if start_ptr else None
+    first = (start + 1) if start is not None else stack.active_index
+    count = stack.active_index + 1 - first
+    for j, i in enumerate(range(first, stack.active_index + 1)):
+        step = stack.steps[i]
+        # Measured in Blender 5.3: right after a Global undo step (a click, a pivot-only
+        # transform...), the first transform does not push its own step; it is merged into
+        # the next one. Undoing that merged step restores the whole mesh, but the native
+        # pivot goes back to its state before the LAST transform, so the last step always
+        # gets the last "before".
+        k = len(befores) - 1 if j == count - 1 else min(j, len(befores) - 1)
+        rot, pos = befores[k]
+        info = (step.type == 'SCULPT', rot, pos)
+        _STEP_INFO[step.as_pointer()] = info
+        _STEP_BY_INDEX[i] = info
+    _LAST_ACTIVE_PTR = stack.active.as_pointer()
+    return True
+
+
+def _is_straight():
+    """True when the tracked pivot rotation is (numerically) Global."""
+    return abs(_TRACKED.to_quaternion().to_axis_angle()[1]) < 1e-6
+
+
+def _rotate_mesh(ctx, delta):
+    """Rotate the unmasked mesh (and the pivot with it) about the pivot. Gizmo locked only."""
+    ov = _override(ctx)
+    if ov is None or _pivot_only(ctx):
+        return False
+    axis, angle = delta.to_quaternion().to_axis_angle()
+    if abs(angle) < 1e-6:
+        return True                            # already straight: no undo step
+    _note_before()
+    with ov:
+        _rotate_op(delta)
+    return True
+
+
+def _move_mesh(ctx, delta):
+    """Move the unmasked mesh (and the pivot with it) by a world-space vector. Gizmo locked only."""
+    ov = _override(ctx)
+    if ov is None or _pivot_only(ctx):
+        return False
+    if Vector(delta).length < 1e-7:
+        return True                            # already there: no undo step
+    _note_before()
+    with ov:
+        bpy.ops.transform.translate(value=tuple(delta), orient_type='GLOBAL', snap=False)
     return True
 
 
@@ -407,23 +491,30 @@ def _track_rotation(op, ctx):
             _rotate_orientation(ctx, Matrix.Rotation(axis.length, 3, axis.normalized()))
 
 
-def _raycast_active(ctx, region, rv3d, coord):
+def _raycast_active(ctx, region, rv3d, coord, want_index=False):
     """Hit (location, normal) on the active object only, in world space, or None.
-    Other objects in the scene are ignored, like Blender's own Set Pivot > Surface."""
+    Other objects in the scene are ignored, like Blender's own Set Pivot > Surface.
+    With want_index, also the index of the face hit (evaluated mesh)."""
     obj = ctx.active_object
     if obj is None or obj.type != 'MESH':
         return None
     origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
     direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
+    # Measured in Blender 5.3: Sculpt Mode transforms (gizmo, Home, Reset...) update the
+    # mesh but not its evaluated copy, so a ray would hit the shape from before the
+    # transform. Tag the mesh so the depsgraph gives the current shape.
+    obj.update_tag(refresh={'DATA'})
     obj_eval = obj.evaluated_get(ctx.evaluated_depsgraph_get())
     mw = obj.matrix_world
     mw_inv = mw.inverted()
     local_origin = mw_inv @ origin
     local_dir = (mw_inv.to_3x3() @ direction).normalized()
-    hit, loc, normal, _index = obj_eval.ray_cast(local_origin, local_dir)
+    hit, loc, normal, index = obj_eval.ray_cast(local_origin, local_dir)
     if not hit:
         return None
     normal_world = (mw_inv.to_3x3().transposed() @ normal).normalized()
+    if want_index:
+        return mw @ loc, normal_world, index
     return mw @ loc, normal_world
 
 
@@ -522,6 +613,7 @@ _STEP_INFO = {}             # step pointer -> (restores_pivot, rotation_before, 
 _STEP_BY_INDEX = {}         # same records by stack index (redo panel may reallocate a step)
 _LAST_ACTIVE_PTR = None
 _UNDO_EVENT = None          # 'UNDO' / 'REDO', set by the undo handlers
+_MESH_OPS = {"STP_OT_mesh_to_world_origin", "STP_OT_straighten_mesh"}   # buttons that move the mesh
 
 
 def _step_index(stack, ptr):
@@ -565,8 +657,8 @@ def _process(ctx, ops):
         _track_position(op, ctx)
         if op.bl_idname.startswith("TRANSFORM_OT_") and _pivot_only(ctx):
             restores_pivot = False             # pivot-only transform
-        if op.bl_idname.startswith("STP_OT_"):
-            restores_pivot = False
+        if op.bl_idname.startswith("STP_OT_") and op.bl_idname not in _MESH_OPS:
+            restores_pivot = False             # the add-on's pivot-only buttons
     return restores_pivot
 
 
@@ -623,6 +715,7 @@ def _sync(ctx):
 
     before = _TRACKED.copy()
     before_pos = _pivot_pos_copy()
+    _assign_button_steps(ctx)
     new = _new_ops(ctx)
     restores_pivot = True
     if new:
@@ -939,14 +1032,14 @@ class STP_OT_pivot_to_unmasked_center(Operator):
 
 
 class STP_OT_pivot_to_world_origin(Operator):
-    """Pivot to the world origin with Global orientation. The object origin and 3D Cursor are not changed"""
+    """Pivot to the world origin with Global orientation. The mesh, the object origin and the 3D Cursor are not changed"""
     bl_idname = "stp.pivot_to_world_origin"
     bl_label = "Pivot to World Origin"
     bl_options = {'REGISTER'}
 
     @classmethod
     def description(cls, context, properties):
-        return _tooltip("World Origin", cls.__doc__)
+        return _tooltip("World Origin", cls.__doc__ + ". Lock the gizmo to move the mesh instead")
 
     @classmethod
     def poll(cls, context):
@@ -959,15 +1052,45 @@ class STP_OT_pivot_to_world_origin(Operator):
         return {'FINISHED'}
 
 
+class STP_OT_mesh_to_world_origin(Operator):
+    """Straighten the unmasked mesh to Global axes and move it so the pivot lands on the world origin."""
+    bl_idname = "stp.mesh_to_world_origin"
+    bl_label = "Mesh to World Origin"
+    bl_options = {'REGISTER', 'UNDO'}      # the mesh changes: needs its own undo step
+
+    @classmethod
+    def description(cls, context, properties):
+        return _tooltip("World Origin", cls.__doc__ + ". Unlock the gizmo to move only the pivot")
+
+    @classmethod
+    def poll(cls, context):
+        return _is_sculpt(context) and not _pivot_only(context)
+
+    def execute(self, context):
+        if _PIVOT_POS is None:
+            self.report({'WARNING'}, "Pivot position unknown here: place it first "
+                                     "(Shift + right click or Unmasked Center)")
+            return {'CANCELLED'}
+        if _is_straight() and _PIVOT_POS.length < 1e-7:
+            return {'CANCELLED'}               # already there: no empty undo step
+        _begin_mesh_button(context)
+        _rotate_mesh(context, _TRACKED.inverted())     # straighten about the pivot first
+        _set_global(context, force=True)
+        if not _move_mesh(context, -_PIVOT_POS):
+            return {'CANCELLED'}
+        _set_pivot_pos(Vector((0.0, 0.0, 0.0)))
+        return {'FINISHED'}
+
+
 class STP_OT_reset_orientation(Operator):
-    """Reset the pivot and gizmo orientation to Global, keeping the pivot position"""
+    """Pivot and gizmo back to Global axes, keeping the pivot position. The mesh is not changed"""
     bl_idname = "stp.reset_orientation"
     bl_label = "Reset Pivot Orientation"
     bl_options = {'REGISTER'}
 
     @classmethod
     def description(cls, context, properties):
-        return _tooltip("Reset Orientation", cls.__doc__)
+        return _tooltip("Reset Orientation", cls.__doc__ + ". Lock the gizmo to turn the mesh instead")
 
     @classmethod
     def poll(cls, context):
@@ -975,6 +1098,31 @@ class STP_OT_reset_orientation(Operator):
 
     def execute(self, context):
         _reset_orientation(context)
+        return {'FINISHED'}
+
+
+class STP_OT_straighten_mesh(Operator):
+    """Turn the unmasked mesh about the pivot until the gizmo is back on Global axes"""
+    bl_idname = "stp.straighten_mesh"
+    bl_label = "Straighten Mesh"
+    bl_options = {'REGISTER', 'UNDO'}      # the mesh changes: needs its own undo step
+
+    @classmethod
+    def description(cls, context, properties):
+        return _tooltip("Reset Orientation", cls.__doc__ + ". Unlock the gizmo to reset only the pivot")
+
+    @classmethod
+    def poll(cls, context):
+        return _is_sculpt(context) and not _pivot_only(context)
+
+    def execute(self, context):
+        if _is_straight():
+            _set_global(context, force=True)
+            return {'CANCELLED'}               # already straight: no empty undo step
+        _begin_mesh_button(context)
+        if not _rotate_mesh(context, _TRACKED.inverted()):
+            return {'CANCELLED'}
+        _set_global(context, force=True)
         return {'FINISHED'}
 
 
@@ -1050,15 +1198,17 @@ class STP_GGT_pivot_buttons(GizmoGroup):
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT', 'SCALE'}
 
-    # (operator, icon); the lock icon follows the Pivot Only state
+    # (operator, icon, shown when): None = always, 'LOCKED' / 'UNLOCKED' = gizmo state.
+    # Locked, Home and Reset act on the mesh; unlocked, only on the pivot.
     BUTTONS = (
-        ("stp.pivot_to_unmasked_center", "unmasked_center"),
-        ("stp.pivot_to_world_origin", "home"),
-        ("stp.reset_orientation", "reset"),
-        ("stp.toggle_pivot_only", "lock_closed"),     # custom icons (last on the right)
-        ("stp.toggle_pivot_only", "lock_open"),
+        ("stp.pivot_to_unmasked_center", "unmasked_center", None),
+        ("stp.mesh_to_world_origin", "home", 'LOCKED'),
+        ("stp.pivot_to_world_origin", "home", 'UNLOCKED'),
+        ("stp.straighten_mesh", "reset", 'LOCKED'),
+        ("stp.reset_orientation", "reset", 'UNLOCKED'),
+        ("stp.toggle_pivot_only", "lock_closed", 'LOCKED'),    # custom icons (last on the right)
+        ("stp.toggle_pivot_only", "lock_open", 'UNLOCKED'),
     )
-    LOCKED, UNLOCKED = 3, 4
 
     @classmethod
     def poll(cls, context):
@@ -1069,7 +1219,7 @@ class STP_GGT_pivot_buttons(GizmoGroup):
     def setup(self, context):
         self.gizmos.new(STP_GT_hover_tracker.bl_idname)
         self.buttons = []
-        for op, _icon in self.BUTTONS:
+        for op, _icon, _state in self.BUTTONS:
             gz = self.gizmos.new("GIZMO_GT_button_2d")
             gz.target_set_operator(op)
             # Invisible click areas: Blender draws image icons dimmer than its own icons,
@@ -1091,10 +1241,13 @@ class STP_GGT_pivot_buttons(GizmoGroup):
         size = 13.0 * ui
         unlocked = _pivot_only(context)
         _CUSTOM_DRAW.clear()
-        hidden_index = self.LOCKED if unlocked else self.UNLOCKED
-        visible = [b for i, b in enumerate(self.buttons) if i != hidden_index]
-        hidden = self.buttons[hidden_index]
-        hidden.hide = True
+        other = 'LOCKED' if unlocked else 'UNLOCKED'
+        visible = []
+        for gz, (_op, _icon, state) in zip(self.buttons, self.BUTTONS):
+            if state == other:
+                gz.hide = True
+            else:
+                visible.append(gz)
         if not _is_transform_tool(context) or _transform_running(context):
             for gz in self.buttons:
                 gz.hide = True
@@ -1231,6 +1384,9 @@ def _draw_hint():
     # Only with a transform tool: with a brush nothing moves and Space is not the add-on's.
     if not (_is_sculpt(ctx) and _pivot_only(ctx) and _is_transform_tool(ctx)):
         return
+    p = _prefs()
+    if p is not None and not p.show_pivot_only_hint:
+        return
     region = ctx.region
     ui = ctx.preferences.system.ui_scale
     bottom = 0
@@ -1297,8 +1453,57 @@ def _unregister_keymaps():
 # ----------------------------------------------------------------------------
 # Registration
 # ----------------------------------------------------------------------------
+def _objects_with_memory():
+    """Objects of this file with a remembered pivot (linked ones cannot be edited)."""
+    return [ob for ob in bpy.data.objects
+            if ob.library is None and getattr(ob, "stp_pivot_state", _MEM_NONE) != _MEM_NONE]
+
+
+class STP_OT_clear_pivot_memory(Operator):
+    """Forget the remembered pivot of every object in this file. Each object starts again like the first time (see Pivot on First Entry). Save the file to keep the change"""
+    bl_idname = "stp.clear_pivot_memory"
+    bl_label = "Clear Pivot Memory"
+    bl_options = {'REGISTER', 'INTERNAL'}
+
+    def invoke(self, context, event):
+        count = len(_objects_with_memory())
+        if not count:
+            self.report({'INFO'}, "No object in this file has a remembered pivot")
+            return {'CANCELLED'}
+        return context.window_manager.invoke_confirm(
+            self, event, title="Clear Pivot Memory",
+            message=f"Forget the remembered pivot of {count} object{'s' if count != 1 else ''} in this file?",
+            confirm_text="Clear")
+
+    def execute(self, context):
+        objects = _objects_with_memory()
+        for ob in objects:
+            ob.stp_pivot_state = _MEM_NONE
+            ob.stp_pivot = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
+        # The object being sculpted starts over too, right now: otherwise its current pivot
+        # would simply be remembered again. Same place as a first entry into Sculpt Mode.
+        obj = context.active_object
+        if _is_sculpt(context) and obj is not None and obj.type == 'MESH':
+            entry = _object_rotation(context)
+            target = (_bbox_center_world(obj) if _entry_center_enabled()
+                      else obj.matrix_world.translation.copy())
+            _move_native_pivot(context, obj, target)
+            _rotate_native_pivot(context, entry @ _TRACKED.inverted())
+            _apply_matrix(context, entry)
+        self.report({'INFO'}, f"Pivot memory cleared on {len(objects)} object{'s' if len(objects) != 1 else ''}")
+        return {'FINISHED'}
+
+
 class STP_AddonPreferences(AddonPreferences):
     bl_idname = __package__
+
+    show_pivot_only_hint: BoolProperty(
+        name="Show Pivot Only Reminder",
+        description="Show the blue \"Pivot Only\" reminder at the bottom of the 3D Viewport "
+                    "while the gizmo is unlocked",
+        default=True,
+        update=lambda self, context: _tag_redraw(),
+    )
 
     remember_pivot: BoolProperty(
         name="Remember Pivot per Object",
@@ -1317,17 +1522,32 @@ class STP_AddonPreferences(AddonPreferences):
     )
 
     def draw(self, context):
-        col = self.layout.column()
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        col = layout.column(heading="Pivot")
         col.prop(self, "entry_pivot")
         col.prop(self, "remember_pivot")
+        split = col.split(factor=0.4)          # line the button up with the options
+        split.label(text="")
+        row = split.row()
+        row.enabled = bool(_objects_with_memory())
+        row.operator(STP_OT_clear_pivot_memory.bl_idname, icon='TRASH')
+
+        col = layout.column(heading="Viewport")
+        col.prop(self, "show_pivot_only_hint")
 
 
 _CLASSES = (
+    STP_OT_clear_pivot_memory,
     STP_AddonPreferences,
     STP_OT_pivot_to_surface,
     STP_OT_pivot_to_unmasked_center,
     STP_OT_pivot_to_world_origin,
     STP_OT_reset_orientation,
+    STP_OT_mesh_to_world_origin,
+    STP_OT_straighten_mesh,
     STP_OT_toggle_pivot_only,
     STP_GT_hover_tracker,
     STP_GGT_pivot_buttons,

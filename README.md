@@ -21,7 +21,8 @@ https://github.com/user-attachments/assets/1ec407b9-aa71-47f8-9c73-a4b266f800a2
 - **Pivot on the surface.** `Shift` + right click places the pivot on the surface under the cursor and aligns the gizmo to the surface normal.
 - **Pivot Only.** Unlock the gizmo to move and rotate only the pivot, not the mesh (Blender 5.3's *Transform Only Pivot*), then lock it again.
 - **Buttons above the gizmo.** Unmasked Center, World Origin, Reset Orientation and Lock / Unlock, always one click away.
-- **Pivot remembered per object.** Each object keeps its pivot where you left it, saved in the .blend file. The first time, the pivot starts at the mesh center instead of the object origin.
+- **The lock decides what the buttons move.** Locked, World Origin and Reset Orientation bring the mesh back to the world origin or to Global axes. Unlocked, they move only the pivot.
+- **Pivot remembered per object.** Each object keeps its pivot where you left it, saved in the .blend file. The first time, the pivot starts at the mesh center instead of the object origin. One click in the preferences clears it.
 - **Keyboard transforms.** `G`, `R` and `S` move, rotate and scale with the transform tools, with axis locks and typed values as in Object Mode.
 - **Native undo.** `Ctrl Z`, `Ctrl Shift Z` and *Adjust Last Operation* keep the gizmo and the pivot together.
 - **Pivot Point taken care of.** Sculpt Mode hides the *Pivot Point* menu, but the Transform tool still follows it. With *3D Cursor* or *Active Element* set in Object Mode, the gizmo would leave the sculpt pivot, so in Sculpt Mode the add-on uses *Median Point* and gives your setting back when you leave.
@@ -46,11 +47,15 @@ https://github.com/user-attachments/assets/e45e0d0e-938d-46c4-a985-db43a195e874
 
 ### World Origin
 
-<img src="images/world-origin.png" alt="World Origin button" width="100%">
+Locked, the mesh comes back to the world origin, straight. Unlocked, only the pivot goes there.
+
+<img src="images/world-origin.png" alt="World Origin button, locked and unlocked" width="100%">
 
 ### Reset Orientation
 
-<img src="images/reset-orientation.png" alt="Reset Orientation button" width="100%">
+Locked, the mesh turns back to Global axes around the pivot. Unlocked, only the gizmo straightens.
+
+<img src="images/reset-orientation.png" alt="Reset Orientation button, locked and unlocked" width="100%">
 
 ### Lock / Unlock
 
@@ -66,7 +71,7 @@ https://github.com/user-attachments/assets/70f53c0e-3695-40d8-a695-b160e988a5e6
 
 **From Blender** (recommended): open *Edit › Preferences › Get Extensions*, search for **Sculpt Transform Plus** and click *Install*.
 
-**From a file:** download `sculpt_transform_plus-0.1.0.zip` from the [Releases](https://github.com/hervert-ferreira/sculpt-transform-plus/releases) page, then in Blender use *Edit › Preferences › Get Extensions*, open the menu in the top-right corner and choose *Install from Disk*.
+**From a file:** download `sculpt_transform_plus-0.2.0.zip` from the [Releases](https://github.com/hervert-ferreira/sculpt-transform-plus/releases) page, then in Blender use *Edit › Preferences › Get Extensions*, open the menu in the top-right corner and choose *Install from Disk*.
 
 Requires Blender **5.3** or newer.
 
@@ -82,8 +87,8 @@ Requires Blender **5.3** or newer.
 | Button | Name | What it does |
 |---|---|---|
 | <img src="icons/unmasked_center_64.png" width="24"> | **Unmasked Center** | Pivot to the center of the unmasked area. With nothing masked: the mesh center, in Global orientation. |
-| <img src="icons/home_64.png" width="24"> | **World Origin** | Pivot to the world origin, in Global orientation. The object origin and the 3D Cursor are not changed. |
-| <img src="icons/reset_64.png" width="24"> | **Reset Orientation** | Pivot and gizmo back to Global orientation, keeping the pivot position. |
+| <img src="icons/home_64.png" width="24"> | **World Origin** | **Locked:** moves the mesh so the pivot lands on the world origin, and straightens it to Global axes. **Unlocked:** moves only the pivot to the world origin, in Global orientation. The object origin and the 3D Cursor are never changed. |
+| <img src="icons/reset_64.png" width="24"> | **Reset Orientation** | **Locked:** turns the mesh back to Global axes around the pivot. **Unlocked:** turns only the pivot and the gizmo back to Global orientation. The pivot position is kept either way. |
 | <img src="icons/lock_closed_64.png" width="24"> | **Unlock Gizmo** | The gizmo moves and rotates only the pivot, not the mesh. A "Pivot Only" label shows while unlocked. |
 | <img src="icons/lock_open_64.png" width="24"> | **Lock Gizmo** | The gizmo moves and rotates the mesh again. |
 
@@ -106,6 +111,10 @@ With any other tool, `Space` keeps your own *Spacebar Action* (Play, Tools or Se
 |---|---|
 | **Pivot on First Entry** | Where the pivot starts on an object without a remembered pivot: *Mesh Center* (default) or *Object Origin* (Blender's behavior). |
 | **Remember Pivot per Object** | Each object keeps its pivot (position and rotation), saved in the .blend file. On by default. |
+| **Clear Pivot Memory** | Forgets the remembered pivot of every object in the file, after a confirmation. The object you are sculpting starts over right away. Save the file to keep the change. |
+| **Show Pivot Only Reminder** | Shows the blue "Pivot Only" bar while the gizmo is unlocked. On by default; the open lock still shows the state when it is off. |
+
+<img src="images/preferences.png" alt="Preferences" width="100%">
 
 ## Known limitations
 
@@ -118,6 +127,7 @@ With any other tool, `Space` keeps your own *Spacebar Action* (Play, Tools or Se
 
 - **Python cannot read the mask on Multires and Dyntopo.** Unmasked Center still places the pivot at the center of the unmasked area, but the add-on cannot compute that position, so the buttons wait at the top of the viewport. The same happens after a Mask Expand that moves the pivot.
 - **On Multires, `Shift` + right click aligns the gizmo to the base mesh normal.** The pivot lands exactly on the sculpted surface, but on strong details the gizmo tilt can differ slightly.
+- **On Dyntopo, Python cannot see the mesh while you sculpt.** Right after moving or rotating the mesh, `Shift` + right click can land on the shape from before.
 
 **Pivot tracking**
 
